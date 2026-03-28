@@ -1,0 +1,12 @@
+reward:
+  target_quality: 80.0
+
+  success:
+    base: 1.0
+    altitude_weight: 0.03
+    tolerance_bonus: 0.2
+    tolerance_range: 10.0
+
+  failure:
+    base_penalty: -2.0
+    quality_penalty_scale: 0.1
