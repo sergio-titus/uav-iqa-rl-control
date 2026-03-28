@@ -1,0 +1,14 @@
+logging:
+  tensorboard:
+    log_dir: "runs/"
+
+  checkpoints:
+    save_best: true
+    save_last: true
+
+evaluation:
+  target_quality: 80
+  metrics:
+    - reward
+    - altitude
+    - quality
