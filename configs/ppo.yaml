@@ -1,0 +1,25 @@
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+
+  learning_rate: 3e-4
+
+  loss:
+    entropy_coef: 0.01
+    value_coef: 0.5
+
+  clipping:
+    clip_eps: 0.2
+    target_kl: 0.02
+
+  rollout:
+    steps: 1024
+    minibatch_size: 256
+    update_epochs: 6
+
+  training:
+    episodes: 500
+    steps_per_episode: 50
+
+  optimization:
+    max_grad_norm: 0.5
