@@ -1,0 +1,30 @@
+cnn:
+  model: "efficientnet_b3"
+  epochs: 200
+  batch_size: 32
+  image_size: 300
+  learning_rate: 3e-4
+  weight_decay: 1e-4
+  num_workers: 2
+
+  split:
+    test_size: 0.15
+    val_size: 0.15
+    stratify: true
+
+  mixup:
+    alpha: 0.4
+    prob: 1.0
+
+  loss:
+    use_class_weights: false
+
+  scheduler:
+    type: "cosine"
+    tmax: 50
+    min_lr: 1e-6
+
+  early_stopping:
+    patience: 15
+
+  output_dir: "runs/cnn"
