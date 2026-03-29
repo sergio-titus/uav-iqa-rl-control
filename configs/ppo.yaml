@@ -8,6 +8,12 @@ ppo:
     entropy_coef: 0.01
     value_coef: 0.5
 
+  shaping:
+    bonus_q80: 3.0
+    bonus_q90: 6.0
+    q_threshold_1: 80.0
+    q_threshold_2: 90.0
+
   clipping:
     clip_eps: 0.2
     target_kl: 0.02
