@@ -56,10 +56,14 @@ BONUS_Q80 = reward_cfg["shaping"]["bonus_q80"]
 BONUS_Q90 = reward_cfg["shaping"]["bonus_q90"]
 ALT_OPT = reward_cfg["shaping"]["alt_opt"]
 ALT_PENALTY_K = reward_cfg["shaping"]["alt_penalty_k"]
+TARGET_Q = reward_cfg["target_quality"]
+Q_THR1 = reward_cfg["shaping"]["q_threshold_1"]
+Q_THR2 = reward_cfg["shaping"]["q_threshold_2"]
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-RUN_ROOT = os.path.join(THIS_DIR, training_cfg["logging"]["tensorboard"]["ppo_log_dir"])
+LOG_DIR = training_cfg["logging"]["tensorboard"]["ppo_log_dir"]
+RUN_ROOT = os.path.join(THIS_DIR, LOG_DIR)
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 RUN_DIR = os.path.join(RUN_ROOT, RUN_ID)
 
@@ -82,10 +86,11 @@ def shape_reward(env_reward: float, info: Optional[Dict[str, Any]]) -> float:
 
     if q is not None:
         base = (float(q) - Q_BASE_CENTER) / Q_BASE_SCALE
-        if q >= 80.0:
-            bonus += BONUS_Q80
-        if q >= 90.0:
-            bonus += BONUS_Q90
+        if q >= Q_THR1:
+              bonus += BONUS_Q80
+
+        if q >= Q_THR2:
+              bonus += BONUS_Q90
 
     if z is not None:
         z = float(z)
@@ -108,8 +113,8 @@ class ActorCritic(nn.Module):
     def __init__(self, obs_dim: int, n_actions: int):
         super().__init__()
 
-        hidden1 = ppo_cfg["network"]["hidden1"]
-        hidden2 = ppo_cfg["network"]["hidden2"]
+        hidden1 = ppo_cfg.get("network", {}).get("hidden1", 256)
+        hidden2 = ppo_cfg.get("network", {}).get("hidden2", 256)
 
         self.backbone = nn.Sequential(
             nn.Linear(obs_dim, hidden1), nn.ReLU(),
