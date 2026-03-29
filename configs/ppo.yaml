@@ -23,3 +23,7 @@ ppo:
 
   optimization:
     max_grad_norm: 0.5
+
+  network:
+    hidden1: 256
+    hidden2: 256
