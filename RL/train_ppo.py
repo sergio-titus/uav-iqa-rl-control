@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os, time, random, collections
+from pathlib import Path
+import yaml
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
@@ -14,42 +16,54 @@ from torch.utils.tensorboard import SummaryWriter
 import rclpy
 from uav_iqa_env import UAVIQAEnv
 
-# ----------------- Config -----------------
-MAX_EPISODES = 500
-MAX_STEPS_PER_EP = 50
+def load_yaml_config(filename: str):
+    project_root = Path(__file__).resolve().parent.parent
+    config_path = project_root / "configs" / filename
 
-GAMMA = 0.99
-GAE_LAMBDA = 0.95
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
 
-LR = 3e-4
-ENT_COEF = 0.01
-VF_COEF = 0.5
-MAX_GRAD_NORM = 0.5
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
-CLIP_EPS = 0.2
-TARGET_KL = 0.02
+# ----------------- Config loading -----------------
+ppo_cfg = load_yaml_config("ppo.yaml")["ppo"]
+training_cfg = load_yaml_config("training.yaml")
+reward_cfg = load_yaml_config("reward.yaml")["reward"]
 
-ROLLOUT_STEPS = 1024          # collect this many steps then update
-UPDATE_EPOCHS = 6
-MINIBATCH_SIZE = 256
+MAX_EPISODES = ppo_cfg["training"]["episodes"]
+MAX_STEPS_PER_EP = ppo_cfg["training"]["steps_per_episode"]
 
-# Reward shaping (same idea as your DDQN shaping: aim for >=80 while not wasting steps)
-STEP_PENALTY = -0.15
-Q_BASE_CENTER = 70.0          # q=70 => 0
-Q_BASE_SCALE = 10.0           # q=80 => +1, q=90 => +2
-BONUS_Q80 = 3.0
-BONUS_Q90 = 6.0
-ALT_OPT = 25.0
-ALT_PENALTY_K = 0.01          # -k*(z-ALT_OPT)^2 for z>ALT_OPT
+GAMMA = ppo_cfg["gamma"]
+GAE_LAMBDA = ppo_cfg["gae_lambda"]
+
+LR = ppo_cfg["learning_rate"]
+ENT_COEF = ppo_cfg["loss"]["entropy_coef"]
+VF_COEF = ppo_cfg["loss"]["value_coef"]
+MAX_GRAD_NORM = ppo_cfg["optimization"]["max_grad_norm"]
+
+CLIP_EPS = ppo_cfg["clipping"]["clip_eps"]
+TARGET_KL = ppo_cfg["clipping"]["target_kl"]
+
+ROLLOUT_STEPS = ppo_cfg["rollout"]["steps"]
+UPDATE_EPOCHS = ppo_cfg["rollout"]["update_epochs"]
+MINIBATCH_SIZE = ppo_cfg["rollout"]["minibatch_size"]
+
+STEP_PENALTY = reward_cfg["shaping"]["step_penalty"]
+Q_BASE_CENTER = reward_cfg["shaping"]["q_base_center"]
+Q_BASE_SCALE = reward_cfg["shaping"]["q_base_scale"]
+BONUS_Q80 = reward_cfg["shaping"]["bonus_q80"]
+BONUS_Q90 = reward_cfg["shaping"]["bonus_q90"]
+ALT_OPT = reward_cfg["shaping"]["alt_opt"]
+ALT_PENALTY_K = reward_cfg["shaping"]["alt_penalty_k"]
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# TensorBoard run name: PPO_training/<timestamp> so you never mix runs
-RUN_ROOT = os.path.join(THIS_DIR, "runs", "PPO_training")
+RUN_ROOT = os.path.join(THIS_DIR, training_cfg["logging"]["tensorboard"]["ppo_log_dir"])
 RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
 RUN_DIR = os.path.join(RUN_ROOT, RUN_ID)
 
-CKPT_DIR = os.path.join(THIS_DIR, "checkpoints", "PPO_training")
+CKPT_DIR = os.path.join(THIS_DIR, training_cfg["logging"]["checkpoints"]["ppo_ckpt_dir"])
 os.makedirs(CKPT_DIR, exist_ok=True)
 BEST_CKPT_PATH = os.path.join(CKPT_DIR, "best_policy.pth")
 LAST_CKPT_PATH = os.path.join(CKPT_DIR, "last_policy.pth")
@@ -93,12 +107,16 @@ def explained_variance(y_pred: np.ndarray, y_true: np.ndarray) -> float:
 class ActorCritic(nn.Module):
     def __init__(self, obs_dim: int, n_actions: int):
         super().__init__()
+
+        hidden1 = ppo_cfg["network"]["hidden1"]
+        hidden2 = ppo_cfg["network"]["hidden2"]
+
         self.backbone = nn.Sequential(
-            nn.Linear(obs_dim, 256), nn.ReLU(),
-            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(obs_dim, hidden1), nn.ReLU(),
+            nn.Linear(hidden1, hidden2), nn.ReLU(),
         )
-        self.pi = nn.Linear(256, n_actions)   # logits
-        self.v  = nn.Linear(256, 1)
+        self.pi = nn.Linear(hidden2, n_actions)
+        self.v = nn.Linear(hidden2, 1)
 
     def forward(self, x):
         h = self.backbone(x)
@@ -129,7 +147,7 @@ def to_torch(x, device, dtype=torch.float32):
 # ----------------- Train -----------------
 def train():
     rclpy.init()
-    env = UAVIQAEnv()
+    env = UAVIQAEnv(env_config_path="env.yaml", reward_config_path="reward.yaml")
 
     obs_dim = env.obs_dim
     n_actions = env.n_actions
