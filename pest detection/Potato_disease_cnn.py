@@ -134,7 +134,10 @@ for p in kaggle_input.iterdir():
 # If you already know your dataset path, set it here directly:
 # DATA_ROOT = Path("/kaggle/input/datasets/warcoder/potato-leaf-disease-dataset/Potato Leaf Disease Dataset in Uncontrolled Environment")
 # Otherwise auto-find:
-DATA_ROOT = find_class_root(kaggle_input)
+if Path(cfg.dataset.root).exists():
+    DATA_ROOT = Path(cfg.dataset.root)
+else:
+    DATA_ROOT = find_class_root(kaggle_input)
 print("\n✅ Using DATA_ROOT:", DATA_ROOT)
 
 # ----------------------------
@@ -540,5 +543,7 @@ with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
 
 print("\n✅ Saved files in:", out_dir)
 print(sorted([p.name for p in out_dir.iterdir()]))
-
+print("\nDataset:", cfg.dataset.name)
+print("Source:", cfg.dataset.source)
+print("Root:", DATA_ROOT)
 print("✅ Zipped:", zip_path)
