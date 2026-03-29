@@ -1,5 +1,9 @@
 cnn:
   model: "efficientnet_b3"
+  dataset:
+    name: potato_leaf_disease
+    root: "data/potato_leaf_disease"
+    source: "https://www.kaggle.com/datasets/warcoder/potato-leaf-disease-dataset"
   epochs: 200
   batch_size: 32
   image_size: 300
