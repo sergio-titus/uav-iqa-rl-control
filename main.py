@@ -42,7 +42,7 @@ def run_ppo():
 
 
 def run_yolo():
-    script_path = PROJECT_ROOT / "pest_detection" / "pobed_yolo.py"
+    script_path = PROJECT_ROOT / "pest detection" / "pobed_yolo.py"
     module = import_module_from_path("pobed_yolo", script_path)
 
     if hasattr(module, "main"):
@@ -55,7 +55,7 @@ def run_yolo():
 
 
 def run_cnn():
-    script_path = PROJECT_ROOT / "pest_detection" / "Potato_disease_cnn.py"
+    script_path = PROJECT_ROOT / "pest detection" / "Potato_disease_cnn.py"
     module = import_module_from_path("Potato_disease_cnn", script_path)
 
     if hasattr(module, "main"):
