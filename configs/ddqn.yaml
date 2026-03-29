@@ -1,12 +1,11 @@
 ddqn:
   gamma: 0.99
   learning_rate: 5e-4
+  batch_size: 64
 
   buffer:
     size: 100000
     min_size: 2000
-
-  batch_size: 64
 
   epsilon:
     start: 1.0
@@ -23,3 +22,9 @@ ddqn:
 
   optimization:
     grad_clip: 10.0
+
+  network:
+    hidden1: 256
+    hidden2: 256
+    value_hidden: 128
+    adv_hidden: 128
