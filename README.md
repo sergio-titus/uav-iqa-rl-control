@@ -25,8 +25,8 @@ python main.py --task ddqn
 python main.py --task ppo
 python main.py --task yolo
 python main.py --task cnn
----
-## **Simulation Workflow appears bold**
+
+## Simulation Workflow
 
 # 1. Launch QGroundControl
 ~/apps/qgc/QGroundControl.AppImage
