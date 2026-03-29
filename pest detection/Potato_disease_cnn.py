@@ -42,6 +42,7 @@ def seed_everything(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+def main():
 SEED = cfg.get("seed", 42)
 seed_everything(SEED)
 
@@ -574,3 +575,5 @@ print("\nDataset:", cfg["dataset"]["name"])
 print("Source:", cfg["dataset"]["source"])
 print("Root:", DATA_ROOT)
 print("✅ Zipped:", zip_path)
+if __name__ == "__main__":
+    main()
