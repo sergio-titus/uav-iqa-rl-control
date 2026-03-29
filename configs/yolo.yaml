@@ -1,10 +1,13 @@
 yolo:
   model: yolov8m
-
+  device: 0
   dataset:
     name: pobed
     root: "/content/drive/MyDrive/pobed/yolo"
-
+    source:
+    url: "https://zenodo.org/records/10599211"
+    description: "Potato Beetle Object Detection dataset (YOLO format)"
+    
   output:
     trainval_dir: "/content/yolo_aug_trainval"
     runs_dir: "/content/drive/MyDrive/runs"
