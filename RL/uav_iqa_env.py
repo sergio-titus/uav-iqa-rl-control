@@ -21,8 +21,12 @@ from grpc.aio import AioRpcError
 from iqa.iqa_model import process_bgr_image
 
 def load_yaml_config(filename: str):
-    base_dir = Path(__file__).resolve().parent
-    config_path = base_dir / "configs" / filename
+    project_root = Path(__file__).resolve().parent.parent
+    config_path = project_root / "configs" / filename
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
 
