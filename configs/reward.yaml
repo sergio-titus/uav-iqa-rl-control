@@ -10,3 +10,9 @@ reward:
   failure:
     base_penalty: -2.0
     quality_penalty_scale: 0.1
+
+  shaping:
+    bonus_q80: 3.0
+    bonus_q90: 6.0
+    q_threshold_1: 80.0
+    q_threshold_2: 90.0
