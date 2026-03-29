@@ -16,6 +16,7 @@ def load_yaml_config(filename: str):
 
 assert (Path.cwd() / "configs").exists(), "configs/ folder missing in project root"
 
+def main():
 cfg = load_yaml_config("yolo.yaml")["yolo"]
 
 SEED = cfg["seed"]
@@ -632,3 +633,5 @@ print(" - Run folder:", run_dir)
 print(" - Best weights:", best_path)
 print(" - Archive:", tar_path)
 print(" - Professional plots folder:", run_dir / "professional_named_plots")
+if __name__ == "__main__":
+    main()
