@@ -26,7 +26,7 @@ python main.py --task ppo
 python main.py --task yolo
 python main.py --task cnn
 ---
-## `Simulation Workflow`
+## **Simulation Workflow appears bold**
 
 # 1. Launch QGroundControl
 ~/apps/qgc/QGroundControl.AppImage
