@@ -2,6 +2,8 @@ import time
 import threading
 import asyncio
 from typing import Optional, Dict, Any
+from pathlib import Path
+import yaml
 
 import numpy as np
 
@@ -18,34 +20,43 @@ from grpc.aio import AioRpcError
 
 from iqa.iqa_model import process_bgr_image
 
+def load_yaml_config(filename: str):
+    base_dir = Path(__file__).resolve().parent
+    config_path = base_dir / "configs" / filename
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
 class UAVIQAEnv(Node):
     def __init__(
-        self,
-        image_topic="/iris/gazebo_distorted_preview/image_raw",
-        wind_speed_topic="/uav/wind_speed",
-        wind_burst_topic="/uav/wind_burst",
-        step_dt=0.6,
-        alt_min=5.0,
-        alt_max=60.0,
-        start_alt=15.0,
-        home_n=0.0,
-        home_e=0.0,
-        yaw_deg=0.0,
-        connect_url="udpin://0.0.0.0:14540",  # <-- FIX (new format)
-    ):
+    self,
+    env_config_path: str = "env.yaml",
+    reward_config_path: str = "reward.yaml",
+):
         super().__init__("uav_iqa_env_node")
 
-        self.bridge = CvBridge()
-        self.step_dt = float(step_dt)
+env_cfg = load_yaml_config(env_config_path)["env"]
+reward_cfg = load_yaml_config(reward_config_path)["reward"]
 
-        self.alt_min = float(alt_min)
-        self.alt_max = float(alt_max)
-        self.start_alt = float(start_alt)
+image_topic = env_cfg["image_topic"]
+wind_speed_topic = env_cfg["wind_speed_topic"]
+wind_burst_topic = env_cfg["wind_burst_topic"]
 
-        self.home_n = float(home_n)
-        self.home_e = float(home_e)
-        self.yaw_deg = float(yaw_deg)
+self.step_dt = float(env_cfg["step_dt"])
 
+self.alt_min = float(env_cfg["altitude"]["min"])
+self.alt_max = float(env_cfg["altitude"]["max"])
+self.start_alt = float(env_cfg["altitude"]["start"])
+
+self.home_n = float(env_cfg["home"]["north"])
+self.home_e = float(env_cfg["home"]["east"])
+self.yaw_deg = float(env_cfg["home"]["yaw_deg"])
+
+connect_url = env_cfg["mavsdk"]["connect_url"]
+
+self.reward_cfg = reward_cfg
+self.target_quality = float(reward_cfg["target_quality"])
+
+self.bridge = CvBridge()
         # latest signals
         self.last_img_bgr = None
         self.last_iqa: Optional[Dict[str, float]] = None
@@ -216,12 +227,23 @@ class UAVIQAEnv(Node):
         info = self._get_info()
 
         q = info["quality"]
-        alt = info["altitude"]
-        if q >= 80.0:
-            reward = 1.0 + 0.03 * (alt / self.alt_max)
-            reward += 0.2 * max(0.0, 1.0 - abs(q - 80.0) / 10.0)
-        else:
-            reward = -2.0 - (80.0 - q) / 10.0
+alt = info["altitude"]
+
+target_q = self.target_quality
+
+if q >= target_q:
+    success_cfg = self.reward_cfg["success"]
+    reward = float(success_cfg["base"])
+    reward += float(success_cfg["altitude_weight"]) * (alt / self.alt_max)
+    reward += float(success_cfg["tolerance_bonus"]) * max(
+        0.0,
+        1.0 - abs(q - target_q) / float(success_cfg["tolerance_range"])
+    )
+else:
+    failure_cfg = self.reward_cfg["failure"]
+    reward = float(failure_cfg["base_penalty"]) - (
+        (target_q - q) * float(failure_cfg["quality_penalty_scale"])
+    )
 
         return obs, float(reward), False, info
 
