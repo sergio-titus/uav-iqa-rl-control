@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, random, collections
-from datetime import datetime
-from typing import Dict, Any, Optional
+from pathlib import Path
+import yaml
 
 import numpy as np
 import torch
@@ -12,27 +12,45 @@ from torch.utils.tensorboard import SummaryWriter
 import rclpy
 from uav_iqa_env import UAVIQAEnv
 
-# ----------------- Hyperparams (stable DDQN) -----------------
-MAX_EPISODES = 500
-MAX_STEPS_PER_EP = 50
+def load_yaml_config(filename: str):
+    project_root = Path(__file__).resolve().parent.parent
+    config_path = project_root / "configs" / filename
 
-GAMMA = 0.99
-LR = 5e-4
-BATCH_SIZE = 64
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
 
-BUFFER_SIZE = 100_000
-MIN_REPLAY_SIZE = 2_000
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
-EPS_START = 1.0
-EPS_END = 0.05
-EPS_DECAY_STEPS = MAX_EPISODES * MAX_STEPS_PER_EP  # ~25k
+# ----------------- Config loading -----------------
+ddqn_cfg = load_yaml_config("ddqn.yaml")["ddqn"]
+training_cfg = load_yaml_config("training.yaml")
 
-TAU = 0.005  # soft target update
-GRAD_CLIP = 10.0
+MAX_EPISODES = ddqn_cfg["training"]["episodes"]
+MAX_STEPS_PER_EP = ddqn_cfg["training"]["steps_per_episode"]
+
+GAMMA = ddqn_cfg["gamma"]
+LR = ddqn_cfg["learning_rate"]
+BATCH_SIZE = ddqn_cfg["batch_size"]
+
+BUFFER_SIZE = ddqn_cfg["buffer"]["size"]
+MIN_REPLAY_SIZE = ddqn_cfg["buffer"]["min_size"]
+
+EPS_START = ddqn_cfg["epsilon"]["start"]
+EPS_END = ddqn_cfg["epsilon"]["end"]
+EPS_DECAY_STEPS = ddqn_cfg["epsilon"]["decay_steps"]
+
+TAU = ddqn_cfg["target_update"]["tau"]
+TARGET_UPDATE_FREQ = ddqn_cfg["target_update"]["frequency"]
+GRAD_CLIP = ddqn_cfg["optimization"]["grad_clip"]
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-RUN_DIR = os.path.join(THIS_DIR, "runs", "DDQN_training")
-CKPT_DIR = os.path.join(THIS_DIR, "checkpoints", "DDQN_training")
+
+RUN_SUBDIR = training_cfg["logging"]["tensorboard"]["ddqn_log_dir"]
+CKPT_SUBDIR = training_cfg["logging"]["checkpoints"]["ddqn_ckpt_dir"]
+
+RUN_DIR = os.path.join(THIS_DIR, RUN_SUBDIR)
+CKPT_DIR = os.path.join(THIS_DIR, CKPT_SUBDIR)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
 BEST_PATH = os.path.join(CKPT_DIR, "best_policy.pth")
@@ -64,14 +82,28 @@ class ReplayBuffer:
 class DuelingQ(nn.Module):
     def __init__(self, obs_dim: int, n_actions: int):
         super().__init__()
+
+        hidden1 = ddqn_cfg["network"]["hidden1"]
+        hidden2 = ddqn_cfg["network"]["hidden2"]
+        value_hidden = ddqn_cfg["network"]["value_hidden"]
+        adv_hidden = ddqn_cfg["network"]["adv_hidden"]
+
         self.feat = nn.Sequential(
-            nn.Linear(obs_dim, 256),
+            nn.Linear(obs_dim, hidden1),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(hidden1, hidden2),
             nn.ReLU(),
         )
-        self.value = nn.Sequential(nn.Linear(256, 128), nn.ReLU(), nn.Linear(128, 1))
-        self.adv   = nn.Sequential(nn.Linear(256, 128), nn.ReLU(), nn.Linear(128, n_actions))
+        self.value = nn.Sequential(
+            nn.Linear(hidden2, value_hidden),
+            nn.ReLU(),
+            nn.Linear(value_hidden, 1)
+        )
+        self.adv = nn.Sequential(
+            nn.Linear(hidden2, adv_hidden),
+            nn.ReLU(),
+            nn.Linear(adv_hidden, n_actions)
+        )
 
     def forward(self, x):
         f = self.feat(x)
@@ -86,16 +118,13 @@ def soft_update(target: nn.Module, source: nn.Module, tau: float):
             tp.data.mul_(1.0 - tau).add_(sp.data * tau)
 
 def speed_schedule(global_step: int, total_steps: int) -> float:
-    """
-    Start slow, then speed up as training progresses so the drone reaches chosen altitude faster.
-    """
+    speed_cfg = training_cfg["speed_schedule"]
     frac = min(1.0, global_step / max(1, total_steps))
-    # 0.6 m/s -> 2.4 m/s
-    return 0.6 + 1.8 * frac
+    return float(speed_cfg["start_speed"]) + float(speed_cfg["delta_speed"]) * frac
 
 def train():
     rclpy.init()
-    env = UAVIQAEnv()
+    env = UAVIQAEnv(env_config_path="env.yaml", reward_config_path="reward.yaml")
 
     obs_dim = env.obs_dim
     n_actions = env.n_actions
@@ -202,7 +231,8 @@ def train():
                     nn.utils.clip_grad_norm_(q.parameters(), GRAD_CLIP)
                     opt.step()
 
-                    soft_update(tq, q, TAU)
+                    if global_step % TARGET_UPDATE_FREQ == 0:
+                       soft_update(tq, q, TAU)
 
                     writer.add_scalar("train/loss", float(loss.item()), global_step)
 
