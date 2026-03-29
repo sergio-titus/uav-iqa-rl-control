@@ -12,7 +12,7 @@
 import os, random, math, time, zipfile
 from pathlib import Path
 from dataclasses import dataclass
-
+import yaml
 import numpy as np
 import pandas as pd
 
@@ -41,7 +41,9 @@ def seed_everything(seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-seed_everything(42)
+
+SEED = cfg.get("seed", 42)
+seed_everything(SEED)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Device:", device)
@@ -49,10 +51,20 @@ print("Device:", device)
 # ----------------------------
 # CONFIG
 # ----------------------------
-@dataclass
-class CFG:
-    # Kaggle dataset root (change only this if needed)
-    KAGGLE_INPUT_ROOT: str = "/kaggle/input"
+def load_yaml_config(filename: str):
+    project_root = Path.cwd()
+    config_path = project_root / "configs" / filename
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+assert (Path.cwd() / "configs").exists(), "configs/ folder missing in project root"
+
+cfg = load_yaml_config("cnn.yaml")["cnn"]
+KAGGLE_INPUT_ROOT = cfg.get("kaggle_input_root", "/kaggle/input")
 
     # Training
     EPOCHS: int = 200
@@ -125,7 +137,7 @@ def find_class_root(root: Path) -> Path:
     candidates.sort(key=lambda p: len(p.relative_to(root).parts))
     return candidates[0]
 
-kaggle_input = Path(cfg.KAGGLE_INPUT_ROOT)
+kaggle_input = Path(KAGGLE_INPUT_ROOT)
 print("\nAvailable /kaggle/input datasets:")
 for p in kaggle_input.iterdir():
     if p.is_dir():
@@ -134,17 +146,30 @@ for p in kaggle_input.iterdir():
 # If you already know your dataset path, set it here directly:
 # DATA_ROOT = Path("/kaggle/input/datasets/warcoder/potato-leaf-disease-dataset/Potato Leaf Disease Dataset in Uncontrolled Environment")
 # Otherwise auto-find:
-if Path(cfg.dataset.root).exists():
-    DATA_ROOT = Path(cfg.dataset.root)
+dataset_root = Path(cfg["dataset"]["root"])
+
+if dataset_root.exists():
+    DATA_ROOT = dataset_root
 else:
     DATA_ROOT = find_class_root(kaggle_input)
+
 print("\n✅ Using DATA_ROOT:", DATA_ROOT)
+print("\n===== CONFIG SUMMARY =====")
+print("Seed:", SEED)
+print("Model:", cfg["model"])
+print("Dataset:", cfg["dataset"]["name"])
+print("Dataset source:", cfg["dataset"]["source"])
+print("Image size:", cfg["image_size"])
+print("Epochs:", cfg["epochs"])
+print("Batch size:", cfg["batch_size"])
+print("Learning rate:", cfg["learning_rate"])
+print("==========================\n")
 
 # ----------------------------
 # Transforms
 # ----------------------------
 train_tf = transforms.Compose([
-    transforms.RandomResizedCrop(cfg.IMG_SIZE, scale=(0.7, 1.0)),
+    transforms.RandomResizedCrop(cfg["image_size"], scale=(0.7, 1.0)),
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomVerticalFlip(p=0.2),
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.03),
@@ -156,8 +181,8 @@ train_tf = transforms.Compose([
 ])
 
 val_tf = transforms.Compose([
-    transforms.Resize(int(cfg.IMG_SIZE * 1.15)),
-    transforms.CenterCrop(cfg.IMG_SIZE),
+    transforms.Resize(int(cfg["image_size"] * 1.15)),
+    transforms.CenterCrop(cfg["image_size"]),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225]),
@@ -179,17 +204,17 @@ targets = np.array([base_ds.samples[i][1] for i in range(len(base_ds))])
 # ----------------------------
 idx_all = np.arange(len(base_ds))
 
-strat = targets if cfg.STRATIFY else None
+strat = targets if cfg["split"]["stratify"] else None
 idx_trainval, idx_test = train_test_split(
-    idx_all, test_size=cfg.TEST_SIZE, random_state=42, stratify=strat
+    idx_all, test_size=cfg["split"]["test_size"], random_state=SEED, stratify=strat
 )
 
 targets_trainval = targets[idx_trainval]
-strat2 = targets_trainval if cfg.STRATIFY else None
-val_fraction_of_trainval = cfg.VAL_SIZE / (1.0 - cfg.TEST_SIZE)
+strat2 = targets_trainval if cfg["split"]["stratify"] else None
+val_fraction_of_trainval = cfg["split"]["val_size"] / (1.0 - cfg["split"]["test_size"])
 
 idx_train, idx_val = train_test_split(
-    idx_trainval, test_size=val_fraction_of_trainval, random_state=42, stratify=strat2
+    idx_trainval, test_size=val_fraction_of_trainval, random_state=SEED, stratify=strat2
 )
 
 print("\nSplit sizes:", len(idx_train), len(idx_val), len(idx_test))
@@ -235,12 +260,12 @@ class_weights_t = torch.tensor(class_weights_loss, dtype=torch.float32).to(devic
 # ----------------------------
 # DataLoaders
 # ----------------------------
-train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, sampler=sampler,
-                          num_workers=cfg.NUM_WORKERS, pin_memory=True)
-val_loader   = DataLoader(val_ds, batch_size=cfg.BATCH_SIZE, shuffle=False,
-                          num_workers=cfg.NUM_WORKERS, pin_memory=True)
-test_loader  = DataLoader(test_ds, batch_size=cfg.BATCH_SIZE, shuffle=False,
-                          num_workers=cfg.NUM_WORKERS, pin_memory=True)
+train_loader = DataLoader(train_ds, batch_size=cfg["batch_size"], sampler=sampler,
+                          num_workers=cfg["num_workers"], pin_memory=True)
+val_loader   = DataLoader(val_ds, batch_size=cfg["batch_size"], shuffle=False,
+                          num_workers=cfg["num_workers"], pin_memory=True)
+test_loader  = DataLoader(test_ds, batch_size=cfg["batch_size"], shuffle=False,
+                          num_workers=cfg["num_workers"], pin_memory=True)
 
 # ----------------------------
 # Model: EfficientNet-B3 (pretrained) + new classifier head
@@ -271,15 +296,15 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
 # ----------------------------
 # Loss / Optimizer / Scheduler
 # ----------------------------
-if cfg.USE_CLASS_WEIGHTS:
+if cfg["loss"]["use_class_weights"]:
     criterion = nn.CrossEntropyLoss(weight=class_weights_t)
 else:
     criterion = nn.CrossEntropyLoss()
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.LR, weight_decay=cfg.WD)
+optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["learning_rate"], weight_decay=cfg["weight_decay"])
 
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=cfg.COSINE_TMAX, eta_min=cfg.MIN_LR
+    optimizer, T_max=cfg["scheduler"]["tmax"], eta_min=cfg["scheduler"]["min_lr"]
 )
 
 # ----------------------------
@@ -320,11 +345,11 @@ def train_one_epoch(epoch):
         x, y = x.to(device), y.to(device)
 
         # MixUp
-        use_mix = (cfg.MIXUP_ALPHA > 0) and (random.random() < cfg.MIXUP_PROB)
+        use_mix = (cfg["mixup"]["alpha"] > 0) and (random.random() < cfg["mixup"]["prob"])
         optimizer.zero_grad(set_to_none=True)
 
         if use_mix:
-            x_m, y_a, y_b, lam = mixup_data(x, y, alpha=cfg.MIXUP_ALPHA)
+            x_m, y_a, y_b, lam = mixup_data(x, y, alpha=cfg["mixup"]["alpha"])
             logits = model(x_m)
             loss = mixup_criterion(criterion, logits, y_a, y_b, lam)
             preds = logits.argmax(dim=1)
@@ -393,9 +418,11 @@ def save_confmat(cm, labels, out_path, normalize=False):
 # ----------------------------
 # Training with early stopping
 # ----------------------------
-out_dir = Path(cfg.OUT_DIR)
+out_dir = Path(cfg["output_dir"])
 out_dir.mkdir(parents=True, exist_ok=True)
-
+with open(out_dir / "used_config.yaml", "w") as f:
+    yaml.safe_dump({"cnn": cfg}, f, sort_keys=False)
+    
 history = {
     "epoch": [],
     "train_loss": [], "train_acc": [],
@@ -408,7 +435,7 @@ best_epoch = -1
 pat = 0
 
 t0 = time.time()
-for epoch in range(1, cfg.EPOCHS + 1):
+for epoch in range(1, cfg["epochs"] + 1):
     tr_loss, tr_acc = train_one_epoch(epoch)
     va_loss, va_acc, _, _ = evaluate(val_loader)
 
@@ -423,7 +450,7 @@ for epoch in range(1, cfg.EPOCHS + 1):
     history["lr"].append(lr_now)
 
     if epoch == 1 or epoch % 5 == 0:
-        print(f"Epoch {epoch:3d}/{cfg.EPOCHS} | TrainAcc {tr_acc:.3f} ValAcc {va_acc:.3f} | LR {lr_now:.2e}")
+        print(f"Epoch {epoch:3d}/{cfg["epochs"]} | TrainAcc {tr_acc:.3f} ValAcc {va_acc:.3f} | LR {lr_now:.2e}")
 
     # Save best
     if va_acc > best_val_acc:
@@ -438,7 +465,7 @@ for epoch in range(1, cfg.EPOCHS + 1):
     torch.save(model.state_dict(), out_dir / "last_model.pt")
 
     # Early stop
-    if pat >= cfg.EARLY_STOP_PATIENCE:
+    if pat >= cfg["early_stopping"]["patience"]:
         print(f"⏹ Early stopping at epoch {epoch}, best epoch={best_epoch}, best_val_acc={best_val_acc:.4f}")
         break
 
@@ -543,7 +570,7 @@ with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
 
 print("\n✅ Saved files in:", out_dir)
 print(sorted([p.name for p in out_dir.iterdir()]))
-print("\nDataset:", cfg.dataset.name)
-print("Source:", cfg.dataset.source)
+print("\nDataset:", cfg["dataset"]["name"])
+print("Source:", cfg["dataset"]["source"])
 print("Root:", DATA_ROOT)
 print("✅ Zipped:", zip_path)
