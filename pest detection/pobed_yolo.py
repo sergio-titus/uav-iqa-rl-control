@@ -1,63 +1,51 @@
-# ============================================================
-# Google Colab Notebook Script (FULL, FIXED for ultralytics==8.4.12):
-# POBED (YOLO format) -> Resplit (NO test leakage) + STRONG oversampling
-# (egg + larvae) + Train YOLOv8m + Save + Pro plot names + Archive
-#
-# Fixes vs previous:
-# ✅ REMOVED hyp= (not supported in 8.4.12)
-# ✅ REMOVED fl_gamma (not supported as train arg in your build)
-# ✅ Adds SAFE-ARGS FILTER so unsupported args are auto-dropped
-# ✅ Keeps cos_lr + mosaic/mixup/copy_paste + checkpoints each epoch
-# ✅ Stronger larvae augmentation: COPY-PASTE oversampling + bbox-safe aug top-up
-#
-# Dataset expected:
-# /content/drive/MyDrive/pobed/yolo/
-#   images/{train,val,test}  and labels/{train,val,test}
-# ============================================================
-
-# ---------- 0) Mount Drive ----------
-from google.colab import drive
-drive.mount('/content/drive')
-
-# ---------- 1) Install deps ----------
-!pip -q install ultralytics==8.4.12 albumentations opencv-python-headless pyyaml
-
 import os, shutil, random, yaml, tarfile, json
 from pathlib import Path
 import cv2
 import numpy as np
 import albumentations as A
 
-random.seed(0)
-np.random.seed(0)
+def load_yaml_config(filename: str):
+    project_root = Path.cwd()  # works in Colab + local
+    config_path = project_root / "configs" / filename
 
-# ----------------------------
-# USER SETTINGS
-# ----------------------------
-YOLO_MODEL = "yolov8m"
-DATASET_NAME = "pobed"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config not found: {config_path}")
 
-IMG_SIZE = 1024
-EPOCHS = 200
-PATIENCE = 30
-BATCH = 4
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
 
-# targets = number of TRAIN images that CONTAIN the class
-TARGET_TRAIN_EGG_IMAGES    = 650
-TARGET_TRAIN_LARVAE_IMAGES = 650
+assert (Path.cwd() / "configs").exists(), "configs/ folder missing in project root"
 
-TARGET_VAL_EGG_IMAGES = 80
-VAL_NON_EGG = 2000
+cfg = load_yaml_config("yolo.yaml")["yolo"]
 
-MAX_AUG_PER_SOURCE = 10
+SEED = cfg["seed"]
+random.seed(SEED)
+np.random.seed(SEED)
 
-CLASS_NAMES = ["larvae", "adult_beetle", "egg_cluster"]
-LARVAE_CLS = 0
-EGG_CLS = 2
+YOLO_MODEL = cfg["model"]
+DATASET_NAME = cfg["dataset"]["name"]
 
-SRC_ROOT = Path("/content/drive/MyDrive/pobed/yolo")
+IMG_SIZE = cfg["training"]["img_size"]
+EPOCHS = cfg["training"]["epochs"]
+PATIENCE = cfg["training"]["patience"]
+BATCH = cfg["training"]["batch"]
+DEVICE = cfg.get("device", 0)
 
-OUT_ROOT = Path("/content/yolo_aug_trainval")
+TARGET_TRAIN_EGG_IMAGES = cfg["augmentation"]["targets"]["train_egg_images"]
+TARGET_TRAIN_LARVAE_IMAGES = cfg["augmentation"]["targets"]["train_larvae_images"]
+
+TARGET_VAL_EGG_IMAGES = cfg["augmentation"]["targets"]["val_egg_images"]
+VAL_NON_EGG = cfg["augmentation"]["targets"]["val_non_egg"]
+
+MAX_AUG_PER_SOURCE = cfg["augmentation"]["max_aug_per_source"]
+
+CLASS_NAMES = cfg["classes"]["names"]
+LARVAE_CLS = cfg["classes"]["larvae_id"]
+EGG_CLS = cfg["classes"]["egg_id"]
+
+SRC_ROOT = Path(cfg["dataset"]["root"])
+
+OUT_ROOT = Path(cfg["output"]["trainval_dir"])
 OUT_IMG_TRAIN = OUT_ROOT / "images/train"
 OUT_IMG_VAL   = OUT_ROOT / "images/val"
 OUT_IMG_TEST  = OUT_ROOT / "images/test"
@@ -65,15 +53,24 @@ OUT_LBL_TRAIN = OUT_ROOT / "labels/train"
 OUT_LBL_VAL   = OUT_ROOT / "labels/val"
 OUT_LBL_TEST  = OUT_ROOT / "labels/test"
 
-RUNS_DIR = Path("/content/drive/MyDrive/runs")
+RUNS_DIR = Path(cfg["output"]["runs_dir"])
 OP_NAME  = f"augEggLarvaeTrainVal_{IMG_SIZE}_e{EPOCHS}"
-RUN_NAME = f"{YOLO_MODEL}_{DATASET_NAME}_{OP_NAME}"
+RUN_NAME = f"{YOLO_MODEL}_{DATASET_NAME}_exp"
 
 print("SRC_ROOT:", SRC_ROOT)
 print("OUT_ROOT:", OUT_ROOT)
 print("RUNS_DIR:", RUNS_DIR)
 print("RUN_NAME:", RUN_NAME)
 
+print("\n===== CONFIG SUMMARY =====")
+print("Seed:", SEED)
+print("Model:", YOLO_MODEL)
+print("Dataset:", DATASET_NAME)
+print("Image size:", IMG_SIZE)
+print("Epochs:", EPOCHS)
+print("Batch:", BATCH)
+print("Device:", DEVICE)
+print("==========================\n")
 # ----------------------------
 # Helpers
 # ----------------------------
@@ -505,6 +502,7 @@ train_kwargs = dict(
     imgsz=IMG_SIZE,
     epochs=EPOCHS,
     batch=BATCH,
+    device=DEVICE,
     patience=PATIENCE,
     name=RUN_NAME,
     project=str(RUNS_DIR),
@@ -537,11 +535,19 @@ print("\nTraining args (filtered):\n", json.dumps(train_kwargs_filtered, indent=
 if dropped:
     print("\n⚠️ Dropped unsupported args for this Ultralytics version:", dropped)
 
-model.train(**train_kwargs_filtered)
+try:
+    model.train(**train_kwargs_filtered)
+except Exception as e:
+    print(f"\n❌ YOLO training failed: {e}")
+    raise
 
 run_dir   = RUNS_DIR / RUN_NAME
 best_path = run_dir / "weights/best.pt"
 last_path = run_dir / "weights/last.pt"
+
+if run_dir.exists():
+    with open(run_dir / "used_config.yaml", "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
 
 print("\n✅ Training finished.")
 print("Run folder:", run_dir)
