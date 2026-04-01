@@ -43,8 +43,8 @@ def seed_everything(seed=42):
     torch.cuda.manual_seed_all(seed)
 
 def main():
-SEED = cfg.get("seed", 42)
-seed_everything(SEED)
+   SEED = cfg.get("seed", 42)
+    seed_everything(SEED)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print("Device:", device)
@@ -96,8 +96,6 @@ KAGGLE_INPUT_ROOT = cfg.get("kaggle_input_root", "/kaggle/input")
 
     # Output
     OUT_DIR: str = "/kaggle/working/leaf_cnn_runs"
-
-cfg = CFG()
 
 # ----------------------------
 # Find DATA_ROOT containing class folders (ImageFolder)
@@ -451,7 +449,7 @@ for epoch in range(1, cfg["epochs"] + 1):
     history["lr"].append(lr_now)
 
     if epoch == 1 or epoch % 5 == 0:
-        print(f"Epoch {epoch:3d}/{cfg["epochs"]} | TrainAcc {tr_acc:.3f} ValAcc {va_acc:.3f} | LR {lr_now:.2e}")
+        print(f"Epoch {epoch:3d}/{cfg['epochs']} | TrainAcc {tr_acc:.3f} ValAcc {va_acc:.3f} | LR {lr_now:.2e}")
 
     # Save best
     if va_acc > best_val_acc:
